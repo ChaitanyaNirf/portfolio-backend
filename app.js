@@ -8,16 +8,36 @@ const cors = require('cors');
 const app = express();
 app.use(cors());
 
-const cache = new NodeCache({ stdTTL: 300 }); 
+const cache = new NodeCache({ stdTTL: 300 });
 const PORT = process.env.PORT || 3000;
 
+let totalRequestsToday = 0;
+const MAX_GLOBAL_REQUESTS = 3000;
+let resetTime = Date.now() + 24 * 60 * 60 * 1000;
 
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
-  message: 'Too many requests, please try again later.'
+//middleware to enforce global request limit
+app.use((req, res, next) => {
+  const now = Date.now();
+  if (now >= resetTime) {
+    totalRequestsToday = 0; 
+    resetTime = now + 24 * 60 * 60 * 1000; 
+  }
+
+  if (totalRequestsToday >= MAX_GLOBAL_REQUESTS) {
+    return res.status(429).json({ error: 'Global daily request limit exceeded. Please try again tomorrow.' });
+  }
+
+  totalRequestsToday++; 
+  next();
 });
-app.use(limiter);
+
+//Per IP rate limiter (100 requests per 15 minutes)
+const ipLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, 
+  max: 100, 
+  message: 'Too many requests from this IP, please try again later.'
+});
+app.use(ipLimiter);
 
 app.get('/github-data', async (req, res) => {
   const cachedData = cache.get('github-data');
